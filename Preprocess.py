@@ -44,27 +44,18 @@ class preprocess:
     def wordset(self):
         text = self.readtext()
         unique = collections.Counter(text)
+        del text
         orders = unique.most_common()
-        for word in orders:
-            if word[1] < self.min_count:
-                del word
-        count = [['<UNK>', -1]]
-        count.extend(orders)
-        dictionary = []
-        i = 0
-        for word, _ in count:
-            dictionary[i] = word
-
-
-        data = []
-        for word in text:
-            if word in dictionary:
-                index = dictionary[word]
+        del unique
+        dictionary = ['<UNK>']
+        for i in range(len(orders)):
+            if orders[i][1] < self.min_count:
+                del orders
+                break
             else:
-                index = 0
-                count[0][1] += 1
-            data.append(index)
-        return data, count
+                dictionary.append(orders[i][0])
+
+        return dictionary
 
     # def Huffman_coding(self):
     #     vocab_size = len(self.wordset())
@@ -126,7 +117,3 @@ class SigmoidWithLoss:
 
         dx = (self.y - self.t) * dout / batch_size
         return dx
-
-
-
-
