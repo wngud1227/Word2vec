@@ -47,15 +47,51 @@ class preprocess:
         del text
         orders = unique.most_common()
         del unique
-        dictionary = ['<UNK>']
+        # dictionary = ['<UNK>']
+        # for i in range(len(orders)):
+        #     if orders[i][1] < self.min_count:
+        #         del orders
+        #         break
+        #     else:
+        #         dictionary.append(orders[i][0])
+        #
+        # return dictionary
+        # dictionary = [['<UNK>', 0]]
+        # for i in range(len(orders)):
+        #     if orders[i][1] < self.min_count:
+        #         dictionary[0][1] = len(orders) - i
+        #         del orders
+        #         break
+        #     else:
+        #         dictionary.append(orders[i])
+        # return dictionary
+        vocab, counts = ['<UNK>'], [0]
         for i in range(len(orders)):
             if orders[i][1] < self.min_count:
+                counts[0] = len(orders) - i
                 del orders
                 break
             else:
-                dictionary.append(orders[i][0])
+                vocab.append(orders[i][0])
+                counts.append(orders[i][1])
 
-        return dictionary
+        # <UNK> 포함 sorting
+        # for i in range(len(vocab)):
+        #     if counts[i] < counts[i + 1]:
+        #         temp1 = counts[i]
+        #         counts[i] = counts[i + 1]
+        #         counts[i + 1] = temp1
+        #         temp2 = vocab[i]
+        #         vocab[i] = vocab[i + 1]
+        #         vocab[i + 1] = temp2
+        #
+        #     else:
+        #         break
+
+        return vocab, counts
+
+
+
 
     # def Huffman_coding(self):
     #     vocab_size = len(self.wordset())
@@ -117,3 +153,7 @@ class SigmoidWithLoss:
 
         dx = (self.y - self.t) * dout / batch_size
         return dx
+
+
+
+
