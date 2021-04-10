@@ -58,6 +58,9 @@ class Embedding:
     def forward(self, idx):
         W, = self.params
         self.idx = idx
+        # out = []
+        # for i in idx:
+        #     out.append(W[i])
         out = W[idx]
         return out
 
@@ -92,7 +95,7 @@ class EmbeddingDot:
 class NegativeSamplingLoss:
     def __init__(self, W, corpus, power=0.75, sample_size=5):
         self.sample_size = sample_size
-        self.sampler = UnigramSampler(corpus, power, sample_size)
+        self.sampler = UnigramSampler(corpus, power, sample_size) #corpus = counts
         self.loss_layers = [SigmoidWithLoss() for _ in range(sample_size + 1)]
         self.embed_dot_layers = [EmbeddingDot(W) for _ in range(sample_size + 1)]
         self.params, self.grads = [], []
@@ -163,6 +166,7 @@ class CBOW:
             layer.backward(dout)
         return None
 
+
 file = 'data/news1.txt'
 
 max_epoch = 6
@@ -172,18 +176,22 @@ batch_size = 100
 
 
 preprocess = preprocess(file)
-vocab = preprocess.wordset()
+vocab, counts = preprocess.wordset()
 vocab_size = len(vocab)
 huffman = []
 start_time = time.time()
 
 W_embedding = 0.01 * np.random.randn(vocab_size, hidden_unit).astype('f')
-W_embedding_b = 0.01 * np.random.randn(hidden_unit, 1).astype('f')
+W_embedding_b = 0.01 * np.random.randn(vocab_size, hidden_unit).astype('f')
+
+# W_embedding_b = 0.01 * np.random.randn(hidden_unit, 1).astype('f')
 total_loss, loss_count = 0, 0
 
 with open(file, 'r', encoding='UTF8') as f:
     for epoch in range(max_epoch):
+        iter = 0
         window_size = np.random.randint(1, max_window_size)
+        x, t = [], []
         for sentence in f.readlines():
             sentence = sentence.replace(' .', ' <EOS>')
             sentence = sentence.lower().split()
@@ -194,26 +202,45 @@ with open(file, 'r', encoding='UTF8') as f:
                 else:
                     data.append(0)
 
-            contexts, target = create_contexts_target(sentence, window_size)
-            model = CBOW(window_size, negative_sample=True, corpus=data, W_in=W_embedding, W_out=W_embedding_b)
-
-            max_iter = len(contexts) // batch_size
+            contexts, target = create_contexts_target(data, window_size)
             idx = np.random.permutation(np.arange(len(contexts)))
-            x = contexts[idx]
-            t = target[idx]
+            x.extend(contexts[idx])
+            t.extend(contexts[idx])
+            
+            # if t.shape[0] < batch_size:
+            #     continue
+            #
+            # else:
+            #     model = CBOW(window_size, negative_sample=True, corpus=counts, W_in=W_embedding, W_out=W_embedding_b)
+            #     batch_x = x[:batch_size]
+            #     batch_t = t[:batch_size]
+            #     x = x[batch_size:]
+            #     t = t[batch_size:]
+            #
+            #     loss = model.forward(batch_x, batch_t)
+            #     model.backward()
+            #     # params, grads = remove_duplicate(model.params, model.grads)
+            #
+            #     # total_loss += loss
+            #     # loss_count += 1
+            #     iter += 1
+            
+            while len(t) >= batch_size:
+                model = CBOW(window_size, negative_sample=True, corpus=counts, W_in=W_embedding, W_out=W_embedding_b)
+                batch_x = x[:batch_size]
+                batch_t = t[:batch_size]
+                x = x[batch_size:]
+                t = t[batch_size:]
 
-            for iter in range(max_iter):
-                batch_x = x[iter * batch_size:(iter + 1) * batch_size]
-                batch_t = t[iter * batch_size:(iter + 1) * batch_size]
                 loss = model.forward(batch_x, batch_t)
                 model.backward()
-                params, grads = remove_duplicate(model.params, model.grads)
-
-                total_loss += loss
-                loss_count += 1
+                iter += 1
 
                 elapsed_time = time.time() - start_time
-                print('Epoch: {}, Iteration: {} / {}, Time: {}, loss: {}'.format(epoch + 1, iter + 1, max_iter, elapsed_time, total_loss / loss_count))
+                print('Epoch: {}, Iteration: {} , Time: {}, loss: {}'.format(epoch + 1, iter, elapsed_time, loss))
 
-            W_embedding = model.W_embedding
-            W_embedding_b = model.W_embedding_b
+                W_embedding = model.W_embedding
+                W_embedding_b = model.W_embedding_b
+
+
+
