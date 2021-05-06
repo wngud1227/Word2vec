@@ -154,7 +154,7 @@ class CBOW:
     def forward(self, contexts, target):
         h = 0
         for i, layer in enumerate(self.in_layers):
-            h += layer.forward(contexts[:, i])
+            h += layer.forward(contexts[i])
         h *= 1 / len(self.in_layers)
         loss = self.ns_loss.forward(h, target)
         return loss
@@ -227,8 +227,8 @@ with open(file, 'r', encoding='UTF8') as f:
             
             while len(t) >= batch_size:
                 model = CBOW(window_size, negative_sample=True, corpus=counts, W_in=W_embedding, W_out=W_embedding_b)
-                batch_x = x[:batch_size]
-                batch_t = t[:batch_size]
+                batch_x = np.array(x[:batch_size])
+                batch_t = np.array(t[:batch_size])
                 x = x[batch_size:]
                 t = t[batch_size:]
 
