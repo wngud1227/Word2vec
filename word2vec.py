@@ -104,8 +104,9 @@ class NegativeSamplingLoss:
             self.grads += layer.grads
 
     def forward(self, h, target):
-        batch_size = target.shape[0]
-        negative_sample = self.sampler.get_negative_sample(target)
+
+        batch_size = target.shape
+        negative_sample = self.sampler.get_negative_sample(target) #(batch, sample size)
 
         score = self.embed_dot_layers[0].forward(h, target)
         correct_label = np.ones(batch_size, dtype=np.int32)
@@ -133,7 +134,7 @@ class CBOW:
             self.W_embedding = W_in
             self.W_embedding_b = W_out
 
-            self.in_layers = []
+            self.in_layers = [] #2 x window size 만큼의 embedding 저장
             for i in range(2 * window_size):
                 layer = Embedding(W_embedding)
                 self.in_layers.append(layer)
@@ -147,15 +148,15 @@ class CBOW:
 
 
 
-        # else:
+        # else: #hierarchical softmax
         #     W_embedding = 0.01 * np.random.randn(V, H).astype('f')
         #     W_embedding_b = 0.01 * np.random.randn(H, V).astype('f')
 
     def forward(self, contexts, target):
         h = 0
         for i, layer in enumerate(self.in_layers):
-            h += layer.forward(contexts[i])
-        h *= 1 / len(self.in_layers)
+            h += layer.forward(contexts[:, i])
+        h *= 1 / len(self.in_layers) # h : batch size
         loss = self.ns_loss.forward(h, target)
         return loss
 
@@ -171,7 +172,7 @@ file = 'data/news1.txt'
 
 max_epoch = 6
 max_window_size = 5
-hidden_unit = 100
+hidden_unit = 200
 batch_size = 100
 
 
@@ -190,7 +191,8 @@ total_loss, loss_count = 0, 0
 with open(file, 'r', encoding='UTF8') as f:
     for epoch in range(max_epoch):
         iter = 0
-        window_size = np.random.randint(1, max_window_size)
+        window_size = max_window_size
+        # window_size = np.random.randint(1, max_window_size)
         x, t = [], []
         for sentence in f.readlines():
             sentence = sentence.replace(' .', ' <EOS>')
@@ -201,34 +203,17 @@ with open(file, 'r', encoding='UTF8') as f:
                     data.append(vocab.index(word))
                 else:
                     data.append(0)
-
+            # data size : words in a sentence
             contexts, target = create_contexts_target(data, window_size)
             idx = np.random.permutation(np.arange(len(contexts)))
             x.extend(contexts[idx])
-            t.extend(contexts[idx])
-            
-            # if t.shape[0] < batch_size:
-            #     continue
-            #
-            # else:
-            #     model = CBOW(window_size, negative_sample=True, corpus=counts, W_in=W_embedding, W_out=W_embedding_b)
-            #     batch_x = x[:batch_size]
-            #     batch_t = t[:batch_size]
-            #     x = x[batch_size:]
-            #     t = t[batch_size:]
-            #
-            #     loss = model.forward(batch_x, batch_t)
-            #     model.backward()
-            #     # params, grads = remove_duplicate(model.params, model.grads)
-            #
-            #     # total_loss += loss
-            #     # loss_count += 1
-            #     iter += 1
+            t.extend(target[idx])
             
             while len(t) >= batch_size:
                 model = CBOW(window_size, negative_sample=True, corpus=counts, W_in=W_embedding, W_out=W_embedding_b)
-                batch_x = np.array(x[:batch_size])
+                batch_x = np.array(x[:batch_size]) #batch size x window size
                 batch_t = np.array(t[:batch_size])
+
                 x = x[batch_size:]
                 t = t[batch_size:]
 
