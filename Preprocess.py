@@ -4,12 +4,6 @@ import collections
 import zipfile
 import numpy as np
 
-class vocab_word:
-    def __init__(self, word):
-        self.count = 0
-        self.word = word
-        self.code = 0
-        self.codelen = 0
 
 class preprocess:
     def __init__(self, file):
@@ -47,24 +41,7 @@ class preprocess:
         del text
         orders = unique.most_common()
         del unique
-        # dictionary = ['<UNK>']
-        # for i in range(len(orders)):
-        #     if orders[i][1] < self.min_count:
-        #         del orders
-        #         break
-        #     else:
-        #         dictionary.append(orders[i][0])
-        #
-        # return dictionary
-        # dictionary = [['<UNK>', 0]]
-        # for i in range(len(orders)):
-        #     if orders[i][1] < self.min_count:
-        #         dictionary[0][1] = len(orders) - i
-        #         del orders
-        #         break
-        #     else:
-        #         dictionary.append(orders[i])
-        # return dictionary
+
         vocab, counts = ['<UNK>'], [0]
         for i in range(len(orders)):
             if orders[i][1] < self.min_count:
@@ -75,29 +52,8 @@ class preprocess:
                 vocab.append(orders[i][0])
                 counts.append(orders[i][1])
 
-        # <UNK> 포함 sorting
-        # for i in range(len(vocab)):
-        #     if counts[i] < counts[i + 1]:
-        #         temp1 = counts[i]
-        #         counts[i] = counts[i + 1]
-        #         counts[i + 1] = temp1
-        #         temp2 = vocab[i]
-        #         vocab[i] = vocab[i + 1]
-        #         vocab[i + 1] = temp2
-        #
-        #     else:
-        #         break
-
         return vocab, counts
 
-
-
-
-    # def Huffman_coding(self):
-    #     vocab_size = len(self.wordset())
-    #     pos1 =
-    #     for i in range(len(self.wordset()) - 1):
-    #         if
 
 class UnigramSampler:
     def __init__(self, counts, power, sample_size):
@@ -126,9 +82,6 @@ def cross_entropy_error(y, t):
         t = t.reshape(1, t.size)
         y = y.reshape(1, y.size)
 
-    if t.size == y.size:
-        t = t.argmax(axis=1)
-
     batch_size = y.shape[0]
 
     return -np.sum(np.log(y[np.arange(batch_size), t] + 1e-7)) / batch_size
@@ -153,7 +106,3 @@ class SigmoidWithLoss:
 
         dx = (self.y - self.t) * dout / batch_size
         return dx
-
-
-
-
