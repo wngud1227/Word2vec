@@ -3,7 +3,7 @@ sys.path.append('..')
 import collections
 import zipfile
 import numpy as np
-
+import time
 
 class preprocess:
     def __init__(self, file):
@@ -41,7 +41,24 @@ class preprocess:
         del text
         orders = unique.most_common()
         del unique
-
+        # dictionary = ['<UNK>']
+        # for i in range(len(orders)):
+        #     if orders[i][1] < self.min_count:
+        #         del orders
+        #         break
+        #     else:
+        #         dictionary.append(orders[i][0])
+        #
+        # return dictionary
+        # dictionary = [['<UNK>', 0]]
+        # for i in range(len(orders)):
+        #     if orders[i][1] < self.min_count:
+        #         dictionary[0][1] = len(orders) - i
+        #         del orders
+        #         break
+        #     else:
+        #         dictionary.append(orders[i])
+        # return dictionary
         vocab, counts = ['<UNK>'], [0]
         for i in range(len(orders)):
             if orders[i][1] < self.min_count:
@@ -52,8 +69,29 @@ class preprocess:
                 vocab.append(orders[i][0])
                 counts.append(orders[i][1])
 
+        # <UNK> 포함 sorting
+        # for i in range(len(vocab)):
+        #     if counts[i] < counts[i + 1]:
+        #         temp1 = counts[i]
+        #         counts[i] = counts[i + 1]
+        #         counts[i + 1] = temp1
+        #         temp2 = vocab[i]
+        #         vocab[i] = vocab[i + 1]
+        #         vocab[i + 1] = temp2
+        #
+        #     else:
+        #         break
+
         return vocab, counts
 
+
+
+
+    # def Huffman_coding(self):
+    #     vocab_size = len(self.wordset())
+    #     pos1 =
+    #     for i in range(len(self.wordset()) - 1):
+    #         if
 
 class UnigramSampler:
     def __init__(self, counts, power, sample_size):
@@ -106,3 +144,58 @@ class SigmoidWithLoss:
 
         dx = (self.y - self.t) * dout / batch_size
         return dx
+
+class Adam:
+    def __init__(self, lr=0.001, beta1=0.9, beta2=0.999, iter=0):
+        self.lr = lr
+        self.beta1 = beta1
+        self.beta2 = beta2
+        self.iter = iter
+        self.m = None
+        self.v = None
+
+    def update(self, params, grads):
+        if self.m is None:
+            self.m, self.v = [], []
+            for param in params:
+                self.m.append(np.zeros_like(param))
+                self.v.append(np.zeros_like(param))
+
+        self.iter += 1
+        lr_t = self.lr * np.sqrt(1.0 - self.beta2**self.iter) / (1.0 - self.beta1**self.iter)
+
+        for i in range(len(params)):
+            self.m[i] += (1 - self.beta1) * (grads[i] - self.m[i])
+            self.v[i] += (1 - self.beta2) * (grads[i]**2 - self.v[i])
+
+            params[i] -= lr_t * self.m[i] / (np.sqrt(self.v[i]) + 1e-7)
+
+def remove_duplicate(params, grads):
+    params, grads = params[:], grads[:]
+
+    while True:
+        find_flg = False
+        L = len(params)
+
+        for i in range(0, L - 1):
+            for j in range(i + 1, L):
+
+                if params[i] is params[j]:
+                    grads[i] += grads[j]
+                    find_flg = True
+                    params.pop(j)
+                    grads.pop(j)
+
+                elif params[i].ndim == 2 and params[j].ndim == 2 and \
+                     params[i].T.shape == params[j].shape and np.all(params[i].T == params[j]):
+                    grads[i] += grads[j].T
+                    find_flg = True
+                    params.pop(j)
+                    grads.pop(j)
+
+                if find_flg: break
+            if find_flg: break
+
+        if not find_flg: break
+
+    return params, grads
