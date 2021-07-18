@@ -1,5 +1,6 @@
 import numpy as np
 import pickle
+import time
 from tqdm.auto import tqdm
 
 def remove_duplicate(params, grads):
@@ -11,7 +12,7 @@ def remove_duplicate(params, grads):
         for i in range(0, L - 1):
             for j in range(i + 1, L):
                 if params[i] is params[j]:
-                    grads[i] += grads[j]  
+                    grads[i] += grads[j]
                     find_flg = True
                     params.pop(j)
                     grads.pop(j)
@@ -49,88 +50,6 @@ def create_contexts_target(corpus, window_size=1):
 
     return contexts, target
 
-#Embedding layer
-class Embedding:
-    def __init__(self, W):
-        self.params = [W]
-        self.grads = [np.zeros_like(W)]
-        self.idx = None
-
-    def forward(self, idx):
-        W, = self.params
-        self.idx = idx
-        out = W[idx]
-        return out
-
-    def backward(self, dout):
-        dW, = self.grads
-        dW[...] = 0
-        np.add.at(dW, self.idx, dout)
-        return None
-
-
-class EmbeddingDot:
-    def __init__(self, W):
-        self.embed = Embedding(W)
-        self.params = self.embed.params
-        self.grads = self.embed.grads
-        self.cache = None
-
-    def forward(self, h, idx):
-        target_W = self.embed.forward(idx)
-        out = np.sum(target_W * h)
-
-        self.cache = (h, target_W)
-        return out
-
-    def backward(self, dout):
-        h, target_W = self.cache
-        dtarget_W = dout * h
-        self.embed.backward(dtarget_W)
-        dh = dout * target_W
-        return dh
-
-#optimizer
-class SGD:
-    def __init__(self, lr):
-        self.lr = lr
-
-    def update(self, params, grads):
-
-        for i in range(len(params)):
-            params[i] -= self.lr * grads[i]
-
-#loss
-def cross_entropy_error(y, t):
-    if y.ndim == 1:
-        t = t.reshape(1, t.size)
-        y = y.reshape(1, y.size)
-
-    batch_size = y.shape[0]
-
-    return -np.sum(np.log(y[np.arange(batch_size), t] + 1e-7)) / batch_size
-
-class SigmoidWithLoss:
-    def __init__(self):
-        self.params, self.grads = [], []
-        self.loss = None
-        self.y = None
-        self.t = None
-
-    def forward(self, x, t):
-        self.t = t
-        self.y = 1 / (1 + np.exp(-x))
-
-        self.loss = cross_entropy_error(np.c_[1 - self.y, self.y], self.t)
-
-        return self.loss
-
-    def backward(self, dout=1):
-        # batch_size = self.t.shape[0]
-        #
-        # dx = (self.y - self.t) * dout / batch_size
-        dx = (self.y - self.t) * dout
-        return dx
 
 #Negative Sampling
 class UnigramSampler:
@@ -151,39 +70,10 @@ class UnigramSampler:
 
         return negative_sample
 
-
-class NegativeSamplingLoss:
-    def __init__(self, W, corpus, power=0.75, sample_size=5):
-        self.sample_size = sample_size
-        self.sampler = UnigramSampler(corpus, power, sample_size)
-        self.loss_layers = [SigmoidWithLoss() for _ in range(sample_size + 1)]
-        self.embed_dot_layers = [EmbeddingDot(W) for _ in range(sample_size + 1)]
-        self.params, self.grads = [], []
-        for layer in self.embed_dot_layers:
-            self.params += layer.params
-            self.grads += layer.grads
-
-    def forward(self, h, target):
-        negative_sample = self.sampler.get_negative_sample(target)
-        score = self.embed_dot_layers[0].forward(h, target)
-        correct_label = 1
-        loss = self.loss_layers[0].forward(score, correct_label)
-
-        negative_label = 0
-        for i in range(self.sample_size):
-            negative_target = negative_sample[i]
-            score = self.embed_dot_layers[1 + i].forward(h, negative_target)
-            loss += self.loss_layers[1 + i].forward(score, negative_label)
-
-        return loss
-
-    def backward(self, dout=1):
-        dh = 0
-        for l0, l1 in zip(self.loss_layers, self.embed_dot_layers):
-            dscore = l0.backward(dout)
-            dh += l1.backward(dscore)
-
-        return dh
+#activation
+def sigmoid(xs):
+    out = 1./(1.+np.exp(-xs))
+    return out
 
 #CBOW
 class CBOW:
@@ -191,74 +81,115 @@ class CBOW:
         with open('data/dataset/news/vocab.txt', 'rb') as f:
             corpus = pickle.load(f)
         self.word_to_id = corpus[0]
-
         self.id_to_word = corpus[1]
-        self.vocab = corpus[2]
         self.vocab_size = len(self.word_to_id)
-        self.W_embedding = 0.01 * np.random.randn(self.vocab_size, hidden_unit).astype('f')
-        self.W_embedding_b = 0.01 * np.random.randn(self.vocab_size, hidden_unit).astype('f')
 
-        self.optimizer = SGD(lr=0.025)
+        self.dimension = hidden_unit
+        self.lr = 0.025
         self.window_size = window_size
         # self.window_size = np.random.randint(1, window_size)
+        self.cache = None
 
         if hs == 0: #negative sampling
             self.Unigram = UnigramSampler(corpus[2], power=0.75, sample_size=5)
-            self.in_layers = [] #2 x window size 만큼의 embedding 저장
-            for i in range(2 * self.window_size):
-                layer = Embedding(self.W_embedding)
-                self.in_layers.append(layer)
-            self.ns_loss = NegativeSamplingLoss(self.W_embedding_b, corpus[2], power=0.75, sample_size=5)
-            layers = self.in_layers + [self.ns_loss]
-
-            self.params, self.grads = [], []
-            for layer in layers:
-                self.params += layer.params
-                self.grads += layer.grads
+            self.W_embedding = 0.01 * np.random.randn(self.vocab_size, self.dimension).astype('f')
+            self.W_embedding_b = 0.01 * np.zeros((self.vocab_size, self.dimension)).astype('f')
 
         # else: #hierarchical softmax
         #     W_embedding = 0.01 * np.random.randn(V, H).astype('f')
         #     W_embedding_b = 0.01 * np.random.randn(H, V).astype('f')
 
     def forward(self, contexts, target):
-        h = 0
-        for i, layer in enumerate(self.in_layers):
-            h += layer.forward(contexts[i])
-        h *= 1 / len(self.in_layers)
-        loss = self.ns_loss.forward(h, target)
-        return loss
+        x = self.W_embedding[contexts]
+        x = np.sum(x, axis=0)
+        x /= len(contexts)
+        x = x.reshape(1, self.dimension)
+
+        negative_sample = self.Unigram.get_negative_sample(target)
+
+        label = np.append([target], negative_sample)
+        out = sigmoid(np.dot(x, self.W_embedding_b[label].T))
+
+        p_loss = -np.log(out[:, :1] + 1e-07)
+        n_loss = -np.sum(np.log(1 - out[:, 1:] + 1e-07))
+        self.cache = (x, out, label)
+        return p_loss + n_loss
 
 
-    def backward(self, dout=1):
-        dout = self.ns_loss.backward(dout)
-        dout *= 1 / len(self.in_layers)
-        for layer in self.in_layers:
-            layer.backward(dout)
-        return None
+
+    def backward(self):
+        (x, out, label) = self.cache
+        dout = out.copy()
+        dout[:, :1] -= 1
+        dW_out = np.dot(x.T, dout).T
+        dx = np.dot(dout, self.W_embedding_b[label])
+        return dx, dW_out
 
     def train(self, epoch):
+        start = time.time()
         for j in tqdm(range(epoch), desc='Epoch'):
-            iter = 0
-            for i in tqdm(range(100), desc='Iteration'):
-                if i < 10:
-                    num = '0' + str(i)
-                else:
-                    num = str(i)
-                data = 'data/dataset/news/en-000' + num + '-of-00100.txt'
-                with open(data, 'rb') as f:
-                    text = pickle.load(f)
+            loss = 0
+            count = 0
 
-                n=0
-                for sentence in text:
-                    n += 1
+            # for i in tqdm(range(100), desc='Iteration'):
+            #     if i < 10:
+            #         num = '0' + str(i)
+            #     else:
+            #         num = str(i)
+            #     data = 'data/dataset/news/en-000' + num + '-of-00100.txt'
+            #     with open(data, 'rb') as f:
+            #         text = pickle.load(f)
+            #
+            #     n=0
+            #     for sentence in text:
+            #         n += 1
+            #         contexts, target = create_contexts_target(sentence, window_size=self.window_size + 1)
+            #
+            #         for i in range(len(contexts)):
+            #             count += 1
+            #             loss += self.forward(contexts[i], target[i])
+            #             dx, dW_out = self.backward()
+            #             self.W_embedding_b[self.cache[2]] -= dW_out * self.lr
+            #             self.W_embedding[contexts[i]] -= dx.squeeze() / len(contexts[i]) * self.lr
+            #
+            #         if count % 10000 == 1:
+            #             train_time = time.time() - start
+            #             avg_loss = loss/count
+            #             print('time: {}, loss : {}'.format(train_time, avg_loss))
+            #             print('{} sentence trained!'.format(n))
+            #
+            #             count = 0
+            #             loss = 0
+
+            data = 'data/dataset/news/en-00000-of-00100.txt'
+            with open(data, 'rb') as f:
+                text = pickle.load(f)
+
+            n = 0
+            for sentence in tqdm(text, desc='iteration'):
+                n += 1
+                contexts, target = create_contexts_target(sentence, window_size=self.window_size+1)
+
+                for i in range(len(contexts)):
+                    count += 1
+                    loss += self.forward(contexts[i], target[i])
+                    dx, dW_out = self.backward()
+                    self.W_embedding_b[self.cache[2]] -= dW_out * self.lr
+                    self.W_embedding[contexts[i]] -= dx.squeeze() / len(contexts[i]) * self.lr
+
+                if count % 10000 == 1:
+                    train_time = time.time() - start
+                    avg_loss = loss/count
+                    print('time: {}, loss : {}'.format(train_time, avg_loss))
+                    print('{} sentence trained!'.format(n))
+
+                    count = 0
                     loss = 0
-                    contexts, target = create_contexts_target(sentence, window_size=self.window_size + 1)
 
-                    for i in range(len(contexts)):
-                        loss += self.forward(contexts[i], target[i])
-                        self.backward()
-                        self.params, self.grads = remove_duplicate(self.params, self.grads)
-                        self.optimizer.update(self.params, self.grads)
+        print('Train Finished!')
+        print('Train time : {}'.format(time.time()-start))
 
-                    print('{} sentence'.format(n))
-                    print(loss)
+        with open('data/dataset/embedding.pkl', 'wb') as f:
+            pickle.dump(self.W_embedding, f)
+        return None
+
