@@ -53,21 +53,27 @@ def create_contexts_target(corpus, window_size=1):
 
 #Negative Sampling
 class UnigramSampler:
-    def __init__(self, counts, power, sample_size): #counts = corpus[2](=self.vocab)
+    def __init__(self, word_to_id, counts, power, sample_size): #counts = corpus[2](=self.vocab)
         self.sample_size = sample_size
         self.vocab_size = len(counts)
+
         p = []
         for word in counts.keys():
-            p.append(counts[word])
-        self.word_p = np.power(p, power)
-        self.word_p /= np.sum(self.word_p)
+            freq = int(pow(counts[word], power))
+            p.extend([word_to_id[word]] * freq)
+        self.word_p = np.array(p)
 
     def get_negative_sample(self, target):
-        p = self.word_p.copy()
-        p[target] = 0
-        p /= p.sum()
-        negative_sample = np.random.choice(self.vocab_size, size=self.sample_size, replace=False, p=p)
+        negative_sample = []
+        while(1):
+            sample = np.random.randint(low=0, high=self.word_p.shape[0])
+            if target == self.word_p[sample]:
+                continue
+            else:
+                negative_sample.append(self.word_p[sample])
 
+            if len(negative_sample) >= self.sample_size:
+                break
         return negative_sample
 
 #activation
@@ -86,20 +92,21 @@ class CBOW:
 
         self.dimension = hidden_unit
         self.lr = 0.025
-        self.window_size = window_size
-        # self.window_size = np.random.randint(1, window_size)
+        # self.window_size = window_size
+        self.window_size = np.random.randint(1, window_size)
         self.cache = None
 
         if hs == 0: #negative sampling
-            self.Unigram = UnigramSampler(corpus[2], power=0.75, sample_size=5)
+            self.Unigram = UnigramSampler(self.word_to_id, corpus[2], power=0.75, sample_size=5)
             self.W_embedding = 0.01 * np.random.randn(self.vocab_size, self.dimension).astype('f')
-            self.W_embedding_b = 0.01 * np.zeros((self.vocab_size, self.dimension)).astype('f')
+            self.W_embedding_b = np.zeros((self.vocab_size, self.dimension)).astype('f')
 
         # else: #hierarchical softmax
         #     W_embedding = 0.01 * np.random.randn(V, H).astype('f')
         #     W_embedding_b = 0.01 * np.random.randn(H, V).astype('f')
 
     def forward(self, contexts, target):
+
         x = self.W_embedding[contexts]
         x = np.sum(x, axis=0)
         x /= len(contexts)
@@ -113,6 +120,7 @@ class CBOW:
         p_loss = -np.log(out[:, :1] + 1e-07)
         n_loss = -np.sum(np.log(1 - out[:, 1:] + 1e-07))
         self.cache = (x, out, label)
+
         return p_loss + n_loss
 
 
@@ -123,6 +131,7 @@ class CBOW:
         dout[:, :1] -= 1
         dW_out = np.dot(x.T, dout).T
         dx = np.dot(dout, self.W_embedding_b[label])
+
         return dx, dW_out
 
     def train(self, epoch):
@@ -131,65 +140,66 @@ class CBOW:
             loss = 0
             count = 0
 
-            # for i in tqdm(range(100), desc='Iteration'):
-            #     if i < 10:
-            #         num = '0' + str(i)
-            #     else:
-            #         num = str(i)
-            #     data = 'data/dataset/news/en-000' + num + '-of-00100.txt'
-            #     with open(data, 'rb') as f:
-            #         text = pickle.load(f)
+            for i in tqdm(range(100), desc='Iteration'):
+                if i < 10:
+                    num = '0' + str(i)
+                else:
+                    num = str(i)
+                data = 'data/dataset/news/en-000' + num + '-of-00100.txt'
+                with open(data, 'rb') as f:
+                    text = pickle.load(f)
+
+                n=0
+                for sentence in text:
+                    n += 1
+                    contexts, target = create_contexts_target(sentence, window_size=self.window_size + 1)
+
+                    for i in range(len(contexts)):
+                        count += 1
+                        loss += self.forward(contexts[i], target[i])
+                        dx, dW_out = self.backward()
+
+                        self.W_embedding_b[self.cache[2]] -= dW_out * self.lr
+                        self.W_embedding[contexts[i]] -= dx.squeeze() / len(contexts[i]) * self.lr
+
+
+                    if count % 10000 == 1:
+                        train_time = (time.time() - start) / 3600
+                        avg_loss = loss/count
+                        print('time: {}, loss : {}'.format(train_time, avg_loss))
+                        print('{} sentence trained!'.format(n))
+
+                        count = 0
+                        loss = 0
+
+            # data = 'data/dataset/news/en-00000-of-00100.txt'
+            # with open(data, 'rb') as f:
+            #     text = pickle.load(f)
             #
-            #     n=0
-            #     for sentence in text:
-            #         n += 1
-            #         contexts, target = create_contexts_target(sentence, window_size=self.window_size + 1)
+            # n = 0
+            # for sentence in text:
+            #     n += 1
+            #     contexts, target = create_contexts_target(sentence, window_size=self.window_size+1)
             #
-            #         for i in range(len(contexts)):
-            #             count += 1
-            #             loss += self.forward(contexts[i], target[i])
-            #             dx, dW_out = self.backward()
-            #             self.W_embedding_b[self.cache[2]] -= dW_out * self.lr
-            #             self.W_embedding[contexts[i]] -= dx.squeeze() / len(contexts[i]) * self.lr
+            #     for i in range(len(contexts)):
+            #         count += 1
+            #         loss += self.forward(contexts[i], target[i])
+            #         dx, dW_out = self.backward()
+            #         self.W_embedding_b[self.cache[2]] -= dW_out * self.lr
+            #         self.W_embedding[contexts[i]] -= dx.squeeze() / len(contexts[i]) * self.lr
             #
-            #         if count % 10000 == 1:
-            #             train_time = time.time() - start
-            #             avg_loss = loss/count
-            #             print('time: {}, loss : {}'.format(train_time, avg_loss))
-            #             print('{} sentence trained!'.format(n))
+            #     if count % 10000 == 1:
+            #         train_time = (time.time() - start)/3600
+            #         avg_loss = loss/count
+            #         print('time: {}, loss : {}'.format(train_time, avg_loss))
+            #         print('{} sentence trained!'.format(n))
             #
-            #             count = 0
-            #             loss = 0
-
-            data = 'data/dataset/news/en-00000-of-00100.txt'
-            with open(data, 'rb') as f:
-                text = pickle.load(f)
-
-            n = 0
-            for sentence in tqdm(text, desc='iteration'):
-                n += 1
-                contexts, target = create_contexts_target(sentence, window_size=self.window_size+1)
-
-                for i in range(len(contexts)):
-                    count += 1
-                    loss += self.forward(contexts[i], target[i])
-                    dx, dW_out = self.backward()
-                    self.W_embedding_b[self.cache[2]] -= dW_out * self.lr
-                    self.W_embedding[contexts[i]] -= dx.squeeze() / len(contexts[i]) * self.lr
-
-                if count % 10000 == 1:
-                    train_time = time.time() - start
-                    avg_loss = loss/count
-                    print('time: {}, loss : {}'.format(train_time, avg_loss))
-                    print('{} sentence trained!'.format(n))
-
-                    count = 0
-                    loss = 0
+            #         count = 0
+            #         loss = 0
 
         print('Train Finished!')
         print('Train time : {}'.format(time.time()-start))
 
-        with open('data/dataset/embedding.pkl', 'wb') as f:
+        with open('data/dataset/embedding3.pkl', 'wb') as f:
             pickle.dump(self.W_embedding, f)
         return None
-
