@@ -229,7 +229,7 @@ class SkipGram:
         if hs == 0: #negative sampling
             self.NEG = True
             self.Unigram = UnigramSampler(self.word_to_id, corpus[2], power=0.75, sample_size=5)
-            self.W_embedding = 0.01 * np.random.randn(self.vocab_size, self.dimension).astype('f')
+            self.W_embedding = np.random.uniform(low=-0.5, high=0.5, size=(self.vocab_size, self.dimension))
             self.W_embedding_b = np.zeros((self.vocab_size, self.dimension)).astype('f')
 
         # else: #hierarchical softmax
@@ -240,11 +240,13 @@ class SkipGram:
         if self.NEG:
             loss = 0
             cache = []
-            x = self.W_embedding[target]
-            x = x.reshape(1, self.dimension)
+
             for context in contexts:
-                negative_sample = self.Unigram.get_negative_sample(context)
-                label = np.append([context], negative_sample)
+                x = self.W_embedding[context]
+                x = x.reshape(1, self.dimension)
+
+                negative_sample = self.Unigram.get_negative_sample(target)
+                label = np.append([target], negative_sample)
                 out = sigmoid(np.dot(x, self.W_embedding_b[label].T))
 
                 p_loss = -np.log(out[:, :1] + 1e-07)
@@ -290,7 +292,9 @@ class SkipGram:
                     n += 1
                     #subsampling
                     new_sentence = self.subsampling.delete_vocab(id_to_word=self.id_to_word, sentence=sentence)
+                    # contexts, target = create_contexts_target(sentence, window_size=self.window_size + 1)
                     contexts, target = create_contexts_target(new_sentence, window_size=self.window_size + 1)
+
 
                     for i in range(len(contexts)):
                         count += 1
@@ -310,6 +314,7 @@ class SkipGram:
                         avg_loss = loss/count
                         print('time: {}, loss : {}'.format(train_time, avg_loss))
                         print('{} sentence trained!'.format(n))
+                        print('learning rate : {}'.format(lr))
 
                         count = 0
                         loss = 0
