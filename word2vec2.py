@@ -100,6 +100,23 @@ def sigmoid(x):
     out = 1./(1.+np.exp(-x))
     return out
 
+def softmax(x):
+    if x.ndim == 2:
+        x = x.T
+        x = x - np.max(x, axis=0)
+        y = np.exp(x) / np.sum(np.exp(x), axis=0)
+        return y.T
+
+    x -= np.max(x)
+    return np.exp(x) / np.exp(x).sum()
+
+def cross_entropy(x, y):
+    if x.ndim == 1:
+        x = x.reshape(1, x.size)
+        y = y.reshape(1, y.size)
+    batch_size = x.shape[0]
+    return -np.sum(y * np.log(x + 1e-7)) / batch_size
+
 #CBOW
 class CBOW:
     def __init__(self, window_size, hidden_unit, hs=0): #window_size: the number of input word, hidden_unit : dimension of vector
@@ -111,12 +128,17 @@ class CBOW:
         self.num_sentence = corpus[2]['<EOS>']
         self.dimension = hidden_unit
         self.lr = 0.025
+        self.type = hs
         # self.window_size = window_size
         self.window_size = np.random.randint(1, window_size)
         self.cache = None
         self.subsampling = subsampling(counts=corpus[2], t=0.00001)
 
-        if hs == 0: #negative sampling
+        if hs == 0:
+            self.W_embedding = 0.01 * np.random.randn(self.vocab_size, self.dimension).astype('f')
+            self.W_embedding_b = 0.01 * np.random.randn(self.vocab_size, self.dimension).astype('f')
+
+        elif hs == 1: #negative sampling
             self.Unigram = UnigramSampler(self.word_to_id, corpus[2], power=0.75, sample_size=5)
             self.W_embedding = 0.01 * np.random.randn(self.vocab_size, self.dimension).astype('f')
             self.W_embedding_b = np.zeros((self.vocab_size, self.dimension)).astype('f')
@@ -132,13 +154,21 @@ class CBOW:
         x /= len(contexts)
         x = x.reshape(1, self.dimension)
 
-        negative_sample = self.Unigram.get_negative_sample(target)
+        if self.type == 0:
+            label = np.zeros(self.dimension)
+            label[target] = 1
+            out = softmax(np.dot(x, self.W_embedding_b[target].T))
+            loss = cross_entropy(out, label)
 
-        label = np.append([target], negative_sample)
-        out = sigmoid(np.dot(x, self.W_embedding_b[label].T))
+        elif self.type == 1:
+            negative_sample = self.Unigram.get_negative_sample(target)
 
-        p_loss = -np.log(out[:, :1] + 1e-07)
-        n_loss = -np.sum(np.log(1 - out[:, 1:] + 1e-07))
+            label = np.append([target], negative_sample)
+            out = sigmoid(np.dot(x, self.W_embedding_b[label].T))
+
+            p_loss = -np.log(out[:, :1] + 1e-07)
+            n_loss = -np.sum(np.log(1 - out[:, 1:] + 1e-07))
+
         self.cache = (x, out, label)
 
         return p_loss + n_loss
@@ -148,7 +178,10 @@ class CBOW:
     def backward(self):
         (x, out, label) = self.cache
         dout = out.copy()
-        dout[:, :1] -= 1
+        if self.type == 0:
+            dout -= label
+        elif self.type == 1:
+            dout[:, :1] -= 1
         dW_out = np.dot(x.T, dout).T
         dx = np.dot(dout, self.W_embedding_b[label])
 
@@ -226,9 +259,14 @@ class SkipGram:
         self.cache = None
         self.subsampling = subsampling(counts=corpus[2], t=0.00001)
 
-        if hs == 0: #negative sampling
-            self.NEG = True
-            self.Unigram = UnigramSampler(self.word_to_id, corpus[2], power=0.75, sample_size=5)
+        if hs == 0:
+            self.type = 0
+            self.W_embedding = np.random.uniform(low=-0.5, high=0.5, size=(self.vocab_size, self.dimension))
+            self.W_embedding_b = np.random.uniform(low=-0.5, high=0.5, size=(self.vocab_size, self.dimension))
+
+        elif hs == 1: #negative sampling
+            self.type = 1
+            self.Unigram = UnigramSampler(self.word_to_id, corpus[2], power=0.75, sample_size=15)
             self.W_embedding = np.random.uniform(low=-0.5, high=0.5, size=(self.vocab_size, self.dimension))
             self.W_embedding_b = np.zeros((self.vocab_size, self.dimension)).astype('f')
 
@@ -237,10 +275,20 @@ class SkipGram:
         #     W_embedding_b = 0.01 * np.random.randn(H, V).astype('f')
 
     def forward(self, contexts, target):
-        if self.NEG:
-            loss = 0
-            cache = []
+        loss = 0
+        cache = []
+        if self.type == 0:
+            for context in contexts:
+                x = self.W_embedding[context]
+                x = x.reshape(1, self.dimension)
 
+                label = np.zeros(self.dimension)
+                label[target] = 1
+                out = softmax(np.dot(x, self.W_embedding_b[target].T))
+                loss += cross_entropy(out, label)
+                cache.append((x, context, label, out))
+
+        elif self.type == 1:
             for context in contexts:
                 x = self.W_embedding[context]
                 x = x.reshape(1, self.dimension)
@@ -254,11 +302,21 @@ class SkipGram:
                 loss += (p_loss + n_loss)
                 cache.append((x, context, label, out))
 
-            self.cache = cache
-            return float(loss)/len(contexts)
+        self.cache = cache
+        return float(loss)/len(contexts)
 
     def backward(self, lr):
-        if self.NEG:
+        if self.type==0:
+            for x, context, label, out in self.cache:
+                dout = out.copy()
+                dout -= label
+                dW_out = np.dot(x.T, dout).T
+                dx = np.dot(dout, self.W_embedding_b[label])
+
+                self.W_embedding_b[label] -= dW_out * lr
+                self.W_embedding[context] -= dx.squeeze() * lr
+
+        elif self.type==1:
             for x, context, label, out in self.cache:
                 dout = out.copy()
                 dout[:, :1] -= 1
@@ -268,7 +326,7 @@ class SkipGram:
                 self.W_embedding_b[label] -= dW_out * lr
                 self.W_embedding[context] -= dx.squeeze() * lr
 
-            return None
+        return None
 
     def train(self, epoch):
         start = time.time()
@@ -323,6 +381,6 @@ class SkipGram:
         print('Train Finished!')
         print('Train time : {}'.format(time.time()-start))
 
-        with open('data/dataset/embedding_sg1.pkl', 'wb') as f:
+        with open('data/dataset/embedding_sg_neg15.pkl', 'wb') as f:
             pickle.dump(self.W_embedding, f)
         return None
