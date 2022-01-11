@@ -1,38 +1,118 @@
-model = CBOW(window_size=3, hidden_unit=500)
-model.train(epoch=1)
+import sys
+sys.path.append('..')
+import numpy as np
+from collections import Counter
+import pickle
+import time
+
+def readtext(file):
+    with open(file, 'r', encoding='utf-8') as f:
+        data = f.read()
+    word_list = []
+    word = ''
+    for l in data:
+        if (l == '\n') or (l == ' ') or (l == '\t'):
+            word_list.append(word)
+            word = ''
+            if (l == '\n'):
+                word_list.append('<EOS>')
+        else: word += l
+    return word_list
+
+def wordset(count): #count: 최소 빈도수, vocabulary만들기
+    file = './data/news1.txt'
+    words = readtext(file)
+    collection = Counter(words)
+
+    vocab = {'<UNK>': 0}
+
+    for (word, value) in collection.most_common():
+        if value < 5:
+            vocab['<UNK>'] += 1
+        else:
+            vocab[word] = value
+
+    word_to_id = {}
+    id_to_word = {}
+
+    for word in vocab.keys():
+        word_to_id[word] = len(word_to_id)
+        id_to_word[len(id_to_word)] = word
+
+    return word_to_id, id_to_word, vocab
+
+def textfile(word_to_id):
+    text = []
+    file = './data/news1.txt'
+    words = readtext(file)
+    sentence = []
+    for word in words:
+        if word in word_to_id.keys():
+            sentence.append(word_to_id[word])
+            if word == '<EOS>':
+                text.append(np.array(sentence))
+                sentence = []
+
+        else: sentence.append(word_to_id['<UNK>'])
+
+    #file 저장
+    new_file = './data/news1_processed.txt'
+    with open(new_file, 'wb') as f:
+        pickle.dump(text, f)
 
 
-#ERROR CODE
-# Epoch:   0%|          | 0/1 [00:00<?, ?it/s]
-# Iteration:   0%|          | 0/100 [00:00<?, ?it/s]1 sentence
-# 24.94971286342395
-# 2 sentence
-# 12.475686434077222
-# 3 sentence
-# 74.85785025569916
-# 4 sentence
-# 108.12904407989319
-# 5 sentence
-# 29.11060249387114
-# 6 sentence
-# 91.49241108015433
-# 7 sentence
-# 33.270659758847295
-# 8 sentence
-# 0
-# 9 sentence
-# 12.47591703306918
-# 10 sentence
-# 137.23573788791634
-# Iteration:   0%|          | 0/100 [02:56<?, ?it/s]
-# Epoch:   0%|          | 0/1 [02:56<?, ?it/s]
-# Traceback (most recent call last):
-#   File "C:/Users/박주형/PycharmProjects/Word2vec/test.py", line 151, in <module>
-#     model.train(epoch=1)
-#   File "C:\Users\박주형\PycharmProjects\Word2vec\word2vec2.py", line 257, in train
-#     contexts, target = create_contexts_target(sentence, window_size=self.window_size + 1)
-#   File "C:\Users\박주형\PycharmProjects\Word2vec\word2vec2.py", line 41, in create_contexts_target
-#     target = corpus[window_size:-window_size]
-# TypeError: 'int' object is not subscriptable
+# (word_to_id, id_to_word, count) = wordset(5)
+# with open('./news/vocab.txt', 'wb') as v:
+#     pickle.dump((word_to_id, id_to_word, count), v)
 
-# Process finished with exit code 1
+class Node:
+    def __init__(self, count, word, left=None, right=None):
+        self.count = count
+        self.word = word
+        self.left = left
+        self.right = right
+
+def tree(vocab, id_to_word):
+    nodes = []
+    for i in range(len(id_to_word)):
+        node = Node(vocab[id_to_word[i]], id_to_word[i])
+        nodes.append(node)
+    while len(nodes) > 1:
+        left = nodes[-1]
+        right = nodes[-2]
+        node = Node(left.count + right.count, None, left, right)
+        nodes.remove(left)
+        nodes.remove(right)
+        leng = len(nodes)
+        for i in range(len(nodes), 0, -1):
+            if nodes[i - 1].count >= node.count:
+                nodes.insert(i, node)
+                break
+        if len(nodes) == leng:
+            nodes.insert(0, node)
+    return nodes[0]
+
+def huffman(node, code, codes):
+    if(node.left):
+        code += 0
+        huffman(node.left, code, codes)
+    if(node.right):
+        code += 1
+        huffman(node.right, code, codes)
+    else:
+        codes[node.word] = code
+
+    return codes
+
+with open('./news/vocab.txt', 'rb') as v:
+    (word_to_id, id_to_word, count) = pickle.load(v)
+    start = time.time()
+    node = tree(count, id_to_word)
+    print('tree end : {}'.format((time.time()-start)/60))
+
+code = ''
+codes = {}
+codes = huffman(node, code, codes)
+print(codes)
+print('encoding end')
+
