@@ -1,13 +1,16 @@
 import sys
+
 sys.path.append('..')
 import numpy as np
 from collections import Counter
 import pickle
 import time
 
+
 def sigmoid(x):
-    out = 1./(1.+np.exp(-x))
+    out = 1. / (1. + np.exp(-x))
     return out
+
 
 def readtext(file):
     with open(file, 'r', encoding='utf-8') as f:
@@ -20,11 +23,13 @@ def readtext(file):
             word = ''
             if (l == '\n'):
                 word_list.append('<EOS>')
-        else: word += l
+        else:
+            word += l
     return word_list
 
-def wordset(count): #count: 최소 빈도수, vocabulary만들기
-    file = './data/news1.txt'
+
+def wordset(count):  # count: 최소 빈도수, vocabulary만들기
+    file = './data/dataset/news/news1.txt'
     words = readtext(file)
     collection = Counter(words)
 
@@ -45,9 +50,10 @@ def wordset(count): #count: 최소 빈도수, vocabulary만들기
 
     return word_to_id, id_to_word, vocab
 
-def textfile(word_to_id, new_file = './data/news1_processed.txt'):
+
+def textfile(word_to_id, new_file='./data/dataset/news/news1_preprocessed.txt'):
     text = []
-    file = './data/news1.txt'
+    file = './data/dataset/news/news1.txt'
     words = readtext(file)
     sentence = []
     for word in words:
@@ -57,17 +63,19 @@ def textfile(word_to_id, new_file = './data/news1_processed.txt'):
                 text.append(np.array(sentence))
                 sentence = []
 
-        else: sentence.append(word_to_id['<UNK>'])
+        else:
+            sentence.append(word_to_id['<UNK>'])
 
-    #file 저장
+    # file 저장
     with open(new_file, 'wb') as f:
         pickle.dump(text, f)
+
 
 def create_contexts_target(corpus, window_size=1):
     target = corpus[window_size:-window_size]
     contexts = []
 
-    for idx in range(window_size, len(corpus)-window_size):
+    for idx in range(window_size, len(corpus) - window_size):
         cs = []
         for t in range(-window_size, window_size + 1):
             if t == 0:
@@ -77,9 +85,10 @@ def create_contexts_target(corpus, window_size=1):
 
     return contexts, target
 
+
 # (word_to_id, id_to_word, count) = wordset(5)
 # textfile(word_to_id)
-# with open('./data/vocab.txt', 'wb') as v:
+# with open('./data/dataset/vocab_news.txt', 'wb') as v:
 #     pickle.dump((word_to_id, id_to_word, count), v)
 
 class Node:
@@ -89,6 +98,7 @@ class Node:
         self.symbol = symbol
         self.left = left
         self.right = right
+
 
 def tree(vocab, id_to_word):
     nodes = []
@@ -112,56 +122,75 @@ def tree(vocab, id_to_word):
             nodes.insert(0, node)
     return nodes[0]
 
+
 def huffman(node, code=[], id_to_code={}, id_to_way={}, way=[]):
-    if(node.symbol):
-        if(node.left):
-            way.append(node.symbol)
-            code.append(1)
-            huffman(node.left, code, id_to_code, id_to_way, way)
-        if(node.right):
-            way.append(node.symbol)
-            code.append(-1)
-            huffman(node.right, code, id_to_code, id_to_way, way)
-    
+    if (node.symbol != None):
+        if (node.left != None):
+            new_way = way.copy()
+            new_way.append(node.symbol)
+            new_code = code.copy()
+            new_code.append(1)
+            huffman(node.left, new_code, id_to_code, id_to_way, new_way)
+        if (node.right != None):
+            new_way = way.copy()
+            new_way.append(node.symbol)
+            new_code = code.copy()
+            new_code.append(-1)
+            huffman(node.right, new_code, id_to_code, id_to_way, new_way)
+
     else:
         id_to_code[node.id] = code
         id_to_way[node.id] = way
 
     return id_to_code, id_to_way
 
-with open('./data/vocab.txt', 'rb') as v:
+
+with open('./data/dataset/vocab_news.txt', 'rb') as v:
     (word_to_id, id_to_word, count) = pickle.load(v)
     start = time.time()
     node = tree(count, id_to_word)
-    print('tree end : {}'.format((time.time()-start)/60))
+    print('tree end : {}'.format((time.time() - start) / 60))
 #
 id_to_code, id_to_way = huffman(node)
 
-max = 0
-for code in id_to_code.values():
-    if max < len(code):
-        max = len(code)
+# max = 0
+# for code in id_to_code.values():
+#     if max < len(code):
+#         max = len(code)
+#
+# l = len(id_to_code)
+#
+# mat_code = np.zeros((l, max))
+# mat_way = np.zeros((l, max))
+# for id in id_to_code.keys():
+#     mat_code[id] = id_to_code[id]
+#     mat_way[id] = id_to_way[id]
+#
+# print(mat_way)
+# print(mat_code)
 
-l = len(id_to_code)
-mat_code = np.zeros((l,max))
-mat_way = np.zeros((l,max))
-for id in range(l):
-    code = id_to_code[id]
-    way = id_to_way[id]
-
-    if max > len(code):
-        code[len(code):max] = 0
-        way[len(way):max] = 0
-
-    mat_code[id] = code
-    mat_way[id] = way
-
-print('code : {}, way: {}'.format(mat_code.shape, mat_way.shape))
+# max = 0
+# for code in id_to_code.values():
+#     if max < len(code):
+#         max = len(code)
+#
+#
+# l = len(id_to_code)
+# mat_code = np.zeros((l, max))
+# mat_way = np.zeros((l, max))
+# for id in range(l):
+#     code = id_to_code[id]
+#     way = id_to_way[id]
+#
+#     while len(code) < max: code.append(0)
+#     while len(way) < max: way.append(0)
+#
+#     mat_code[id] = code
+#     mat_way[id] = way
 
 with open('./data/huffman.txt', 'wb') as hf:
-    pickle.dump((mat_code, mat_way), hf)
-    print('encoding end : {}'.format((time.time()-start)/60))
-
+    pickle.dump((id_to_code, id_to_way), hf)
+    print('encoding end : {}'.format((time.time() - start) / 60))
 
 # with open('./data/huffman.txt', 'rb') as hf:
 #     (id_to_code, id_to_way) = pickle.load(hf)
