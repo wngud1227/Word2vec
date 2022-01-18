@@ -1,9 +1,12 @@
 import sys
 
 sys.path.append('..')
+
+from evaluation import *
 import numpy as np
-from collections import Counter
 import pickle
+import time
+
 from tqdm.auto import tqdm
 
 
@@ -24,102 +27,127 @@ def create_contexts_target(corpus, window_size=1):
         contexts.append(cs)
 
     return contexts, target
-
-class Node:
-    def __init__(self, count, id, symbol=None, left=None, right=None):
-        self.count = count
-        self.id = id
-        self.symbol = symbol
-        self.left = left
-        self.right = right
-
-
-def tree(vocab, id_to_word):
-    nodes = []
-    for i in range(len(id_to_word)):
-        node = Node(vocab[id_to_word[i]], i)
-        nodes.append(node)
-    symbol = int(0)
-    while len(nodes) > 1:
-        left = nodes[-1]
-        right = nodes[-2]
-        node = Node(left.count + right.count, None, symbol, left, right)
-        symbol += 1
-        nodes.remove(left)
-        nodes.remove(right)
-        leng = len(nodes)
-        for i in range(len(nodes), 0, -1):
-            if nodes[i - 1].count >= node.count:
-                nodes.insert(i, node)
-                break
-        if len(nodes) == leng:
-            nodes.insert(0, node)
-    return nodes[0]
-
-
-def huffman(node, code=[], id_to_code={}, id_to_way={}, way=[]):
-    if (node.symbol != None):
-        if (node.left != None):
-            new_way = way.copy()
-            new_way.append(node.symbol)
-            new_code = code.copy()
-            new_code.append(1)
-            huffman(node.left, new_code, id_to_code, id_to_way, new_way)
-        if (node.right != None):
-            new_way = way.copy()
-            new_way.append(node.symbol)
-            new_code = code.copy()
-            new_code.append(-1)
-            huffman(node.right, new_code, id_to_code, id_to_way, new_way)
-
-    else:
-        id_to_code[node.id] = code
-        id_to_way[node.id] = way
-
-    return id_to_code, id_to_way
-
-
-# with open('./data/vocab.txt', 'rb') as v:
-#     (word_to_id, id_to_word, count) = pickle.load(v)
-#     start = time.time()
-#     node = tree(count, id_to_word)
-#     print('tree end : {}'.format((time.time() - start) / 60))
-# #
-# id_to_code, id_to_way = huffman(node)
 #
-# max = 0
-# for code in id_to_code.values():
-#     if max < len(code):
-#         max = len(code)
+# class SkipGram:
+#     def __init__(self, window_size, hidden_unit): #window_size: the number of input word, hidden_unit : dimension of vector
+#         with open('./news/vocab.txt', 'rb') as f:
+#             corpus = pickle.load(f)
+#         self.word_to_id = corpus[0]
+#         self.id_to_word = corpus[1]
+#         self.vocab_size = len(self.word_to_id)
+#         self.num_sentence = corpus[2]['<EOS>']
+#         self.dimension = hidden_unit
+#         self.lr = 0.025
+#         self.window_size = np.random.randint(1, window_size)
+#         self.cache = None
 #
-# l = len(id_to_code)
-# mat_code = np.zeros((l, max))
-# mat_way = np.zeros((l, max), dtype=int)
-# for id in range(l):
-#     code = id_to_code[id]
-#     way = id_to_way[id]
+#         self.W_embedding = 0.01*np.random.randn(self.vocab_size, hidden_unit).astype('f')
+#         self.W_embedding_b = np.zeros((self.vocab_size - 1, hidden_unit)).astype('f')
+#         with open('./data/huffman.txt', 'rb') as hf:
+#             (self.id_to_code, self.id_to_way) = pickle.load(hf)
 #
-#     while len(code) < max: code.append(0)
-#     while len(way) < max: way.append(0)
 #
-#     mat_code[id] = code
-#     mat_way[id] = way
+    # def forward(self, contexts, center):
+    #
+    #     code = self.id_to_code[center]    #(V-1,)
+    #     way = list(self.id_to_way[center])      #(V-1,)
+    #     out = self.W_embedding[contexts]  #(window, D)
+    #     score = code * np.dot(out, self.W_embedding_b[way].T)    #(window, V-1)
+    #     self.cache = (contexts, out, score, code, way)
+    #
+    #     loss = np.sum(-np.log(sigmoid(score) + 1e-07))
+    #     loss /= len(contexts)
+    #
+    #     return loss
 #
-# print(mat_way)
-# with open('./data/huffman.txt', 'wb') as hf:
-#     pickle.dump((mat_code, mat_way), hf)
-#     print('encoding end : {}'.format((time.time() - start) / 60))
-
-#train
-with open('./data/vocab.txt', 'rb') as v:
+#         out = self.W_embedding[center]
+#         for context in contexts:
+#             code = self.id_to_code[context]
+#             way = list(self.id_to_way[context])
+#             score = code * np.dot(self.W_embedding_b[way].T, out)
+#
+#
+#     def backward(self, lr):
+#         (contexts, out, score, code, way) = self.cache
+#         dout = sigmoid(score)           #(window, V-1)
+#         dout = code * (dout - 1)        #(window, V-1)
+#         dx = np.dot(dout, self.W_embedding_b[way])     #(window, D)
+#         dW_out = np.dot(dout.T, out)    #(V-1, D)
+#
+#         self.W_embedding_b[way] -= dW_out * lr
+#         self.W_embedding[contexts] -= dx * lr
+#
+#         return None
+#
+#
+#     def train(self, epoch):
+#         start = time.time()
+#         lr = self.lr
+#         n = 0
+#
+#         for j in tqdm(range(epoch), desc='Epoch'):
+#             loss = 0
+#             count = 0
+#
+#             for i in tqdm(range(100), desc='Iteration'):
+#                 if i < 10:
+#                     num = '0' + str(i)
+#                 else:
+#                     num = str(i)
+#                 data = './news/en-000' + num + '-of-00100.txt'
+#                 with open(data, 'rb') as f:
+#                     text = pickle.load(f)
+#
+#                 for sentence in text:
+#                     n += 1
+#                     #subsampling
+#                     # new_sentence = self.subsampling.delete_vocab(id_to_word=self.id_to_word, sentence=sentence)
+#                     contexts, target = create_contexts_target(sentence, window_size=self.window_size + 1)
+#                     # contexts, target = create_contexts_target(new_sentence, window_size=self.window_size + 1)
+#
+#
+#                     for i in range(len(contexts)):
+#                         count += 1
+#                         loss += self.forward(contexts[i], target[i])
+#                         self.backward(lr)
+#
+#                     #lr decay
+#                     alpha = 1 - n/(self.num_sentence * epoch)
+#                     if alpha <= 0.0001:
+#                         alpha = 0.0001
+#
+#                     lr = self.lr * alpha
+#
+#
+#                     if count % 10000 == 1:
+#                         train_time = (time.time() - start) / 3600
+#                         avg_loss = loss/count
+#                         print('time: {}, loss : {}'.format(train_time, avg_loss))
+#                         print('{} sentence trained!'.format(n))
+#                         print('learning rate : {}'.format(lr))
+#
+#                         count = 0
+#                         loss = 0
+#
+#
+#         print('Train Finished!')
+#         print('Train time : {}'.format(time.time()-start))
+#
+#         with open('data/embedding_hf.pkl', 'wb') as f:
+#             pickle.dump(self.W_embedding, f)
+#         return None
+#
+#
+# # train
+with open('./news/vocab.txt', 'rb') as v:
     (word_to_id, id_to_word, count) = pickle.load(v)
 with open('./data/huffman.txt', 'rb') as hf:
     (id_to_code, id_to_way) = pickle.load(hf)
-with open('./data/news1_processed.txt', 'rb') as data:
+with open('./news/en-00000-of-00100.txt', 'rb') as data:
     text = pickle.load(data)
     lr = 0.025
-    W_embedding = np.random.uniform(low=-0.5, high=0.5, size=(len(id_to_code), 10))
-    W_embedding_b = np.random.uniform(low=-0.5, high=0.5, size=(len(id_to_code) - 1, 10))
+    W_embedding = np.random.uniform(low=-0.5, high=0.5, size=(len(id_to_code), 300))
+    W_embedding_b = np.random.uniform(low=-0.5, high=0.5, size=(len(id_to_code) , 300))
 
     n=0
     total_loss = 0
@@ -128,200 +156,45 @@ with open('./data/news1_processed.txt', 'rb') as data:
         contexts, center = create_contexts_target(sentence, window_size=3)
 
         for i in range(len(center)):
-            #forward
-            code = id_to_code[center[i]]    #(V-1,)
-            way = list(id_to_way[center[i]])      #(V-1,)
-            out = W_embedding[contexts[i]]  #(window, D)
-            score = code * np.dot(out, W_embedding_b[way].T)    #(window, V-1)
-
-            loss = np.sum(-np.log(sigmoid(score) + 1e-07))
+            # hierarchical softmax
+            loss = 0
+            cache = []
+            out = W_embedding[center[i]]      #(D)
+            for context in contexts[i]:
+                code = np.array(id_to_code[context])    #(V-1,)
+                way = list(id_to_way[context])      #(V-1,)
+                score = np.dot(code, np.dot(out, W_embedding_b[way].T))    #(window, V-1)
+                loss += np.sum(-np.log(sigmoid(score) + 1e-07))
+                cache.append((context, out, code, way, score))
             loss /= len(contexts[i])
             total_loss += loss
 
             #backward
-            dout = sigmoid(score)           #(window, V-1)
-            dout = code * (dout - 1)        #(window, V-1)
-            dx = np.dot(dout, W_embedding_b[way])     #(window, D)
-            dW_out = np.dot(dout.T, out)    #(V-1, D)
+            for (context, out, code, way, score) in cache:
+                out = out.reshape(1, -1)                  #(1, D)
+                dout = sigmoid(score) - 1
+                dout = (dout * code).reshape(-1, 1)
+                dx = np.dot(dout.T, W_embedding_b[way]).squeeze()     #(D)
+                dW_out = np.dot(dout, out)    #(V-1, D)
 
-            W_embedding_b[way] -= dW_out * lr
-            W_embedding[contexts[i]] -= dx * lr
+                W_embedding_b[way] -= dW_out * lr
+                W_embedding[context] -= dx * lr
 
-        if n%10000==0:
-            print(total_loss/n)
-            total_loss=0
+        # lr decay
+        if n % 10000 == 0:
+            avg_loss = total_loss / n
+            print('loss : {}'.format(avg_loss))
 
+            n = 0
+            total_loss = 0
 
-def cosine_similarity(predict, word_vectors):
-    norm_predict = np.linalg.norm(predict, axis=1)
-    norm_words = np.linalg.norm(word_vectors, axis=1)
-
-    similarity = np.dot(predict, word_vectors.T)      # similarity = (N, V)
-    similarity *= 1/norm_words
-    similarity = similarity.T
-    similarity *= 1/norm_predict
-    similarity = similarity.T
-
-    return similarity
-
-def most_similar(word, W, word_to_id, id_to_word, top=5):
-    if word not in word_to_id:
-        print("Cannot find the word %s." % word)
-        return
-    id = word_to_id[word]
-    vec = W[id]
-
-    vocab_size = len(id_to_word)
-    similarity = np.zeros(vocab_size)
-    for i in range(vocab_size):
-        similarity[i] = cosine_similarity(W[i], vec)
-
-    count = 0
-    sim_word = []
-    for i in (-1 * similarity).argsort():
-        if id_to_word[i] == word:
-            continue
-        print("word: {}, similarity: {}".format(id_to_word[i], similarity[i]))
-        sim_word[count] = id_to_word[i]
-        count += 1
-
-        if count >= top:
-            return sim_word
-
-def make_test(file): #input : test.txt
-    with open(file, 'r', encoding='utf-8') as f:
-        data = f.read()
-
-    semantic_test = []
-    syntactic_test = []
-    a = 0   #a=0 -> semantic, a=1 -> syntactic
-    word_list = []
-    word = ''
-    for l in data:
-        if (l == '\n') or (l == ' ') or (l == '\t'):
-            if word == '':
-                continue
-
-            word_list.append(word)
-            word = ''
-
-            if l == '\n':
-                if a == 0:
-                    semantic_test.append(word_list)
-                elif a == 1:
-                    syntactic_test.append(word_list)
-                word_list = []
-
-        elif word == 'gram':
-            a = 1
-        else: word += l
-
-    return semantic_test, syntactic_test
-
-def save_test(file, word_to_id):
-    text = make_test(file)
-    semantic_test = []
-    syntactic_test = []
-    test = []
-    for t in text[0]:
-        if len(t) != 4:
-            continue
-        for word in t:
-            if word in word_to_id.keys():
-                test.append(word_to_id[word])
-
-            else:
-                test = []
-                break
-
-        if len(test) == 4:
-            semantic_test.extend(test)
-            test = []
-
-    for t in text[1]:
-        if len(t) != 4:
-            continue
-        for word in t:
-            if word in word_to_id.keys():
-                test.append(word_to_id[word])
-
-            else:
-                test = []
-                break
-
-        if len(test) == 4:
-            syntactic_test.extend(test)
-            test = []
-
-    semantic_test = np.array(semantic_test).reshape([-1, 4])
-    syntactic_test = np.array(syntactic_test).reshape([-1, 4])
-
-    # file 저장
-    new_file = './data/test_labeled.pkl'
-    with open(new_file, 'wb') as f:
-        pickle.dump((semantic_test, syntactic_test), f)
-    return None
-
-def embedding(test_list, W):
-    a = []
-    b = []
-    c = []
-    d = []
-    for i in test_list:
-        a_temp = W[i[0]]
-        b_temp = W[i[1]]
-        c_temp = W[i[2]]
-        d_temp = W[i[3]]
-
-        a_norm = np.linalg.norm(a_temp)
-        b_norm = np.linalg.norm(b_temp)
-        c_norm = np.linalg.norm(c_temp)
-        d_norm = np.linalg.norm(d_temp)
-
-        a.append(a_temp / a_norm)
-        b.append(b_temp / b_norm)
-        c.append(c_temp / c_norm)
-        d.append(d_temp / d_norm)
-
-    return np.array(a), np.array(b), np.array(c), np.array(d)
-
-def accuracy(file, W): #input : word_to_id, id_to_word, W, test_list
-    with open(file, 'rb') as f:
-        semantic, syntactic = pickle.load(f)
-
-    correct = 0
-    batch_size = len(semantic) // 10 + 1
-    for i in tqdm(range(10), desc='semantic: '):
-        test_batch = semantic[i*batch_size:(i+1)*batch_size]
-        a, b, c, d = embedding(test_batch, W)
-        new_vec = b - a + c     #new_vec = (test_batch, dimension)
-        similarity = cosine_similarity(new_vec, W)
-        new_id = similarity.argsort(axis=1)
-        new_id = new_id[:, ::-1]
-        new_id = new_id[:, :4]
-        for j in range(len(new_id)):
-            if test_batch[j, 3] == new_id[j][0]:
-                correct += 1
-    semantic_accuracy = correct / len(semantic)
-
-    correct = 0
-    batch_size = len(syntactic) // 10 + 1
-    for i in tqdm(range(10), desc='syntactic: '):
-        test_batch = syntactic[i*batch_size:(i+1)*batch_size]
-        a, b, c, d = embedding(test_batch, W)
-        new_vec = b - a + c     #new_vec = (test_batch, dimension)
-        similarity = cosine_similarity(new_vec, W)
-        new_id = similarity.argsort(axis=1)
-        new_id = new_id[:, ::-1]
-        new_id = new_id[:, :4]
-        for j in range(len(new_id)):
-            if test_batch[j, 3] == new_id[j][0]:
-                correct += 1
-    syntactic_accuracy = correct / len(syntactic)
-
-    return semantic_accuracy, syntactic_accuracy
-
-#test
-# save_test(file='./data/test.txt', word_to_id=word_to_id)
+#
+#
+# # #test
+# # # save_test(file='./data/test.txt', word_to_id=word_to_id)
+# # model = SkipGram(window_size=5, hidden_unit=300)
+# # model.train(epoch=1)
+# #
 accuracy = accuracy(file='./data/test_labeled.pkl', W=W_embedding)
 print(accuracy[0], accuracy[1])
+print(most_similar('king', W_embedding, word_to_id, id_to_word, top=5))
