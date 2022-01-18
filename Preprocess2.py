@@ -3,6 +3,7 @@ sys.path.append('..')
 from collections import Counter
 import pickle
 import numpy as np
+from tqdm.auto import tqdm
 
 def readtext(file):
     with open(file, 'r', encoding='utf-8') as f:
@@ -68,11 +69,84 @@ def textfile(word_to_id):
             pickle.dump(text, f)
         text = []
 
+class Node:
+    def __init__(self, count, id, symbol=None, left=None, right=None):
+        self.count = count
+        self.id = id
+        self.symbol = symbol
+        self.left = left
+        self.right = right
 
-# def huffman(vocab, counts): #vocab: 단어 목록, counts: 단어 count
-#     num = len(vocab)
-#     pos1 = num
-#     pos2 = num - 1
+
+def tree(vocab, id_to_word):
+    nodes = []
+    for i in range(len(id_to_word)):
+        node = Node(vocab[id_to_word[i]], i)
+        nodes.append(node)
+    symbol = int(0)
+    while len(nodes) > 1:
+        left = nodes[-1]
+        right = nodes[-2]
+        node = Node(left.count + right.count, None, symbol, left, right)
+        symbol += 1
+        nodes.remove(left)
+        nodes.remove(right)
+        leng = len(nodes)
+        for i in range(len(nodes), 0, -1):
+            if nodes[i - 1].count >= node.count:
+                nodes.insert(i, node)
+                break
+        if len(nodes) == leng:
+            nodes.insert(0, node)
+    return nodes[0]
 
 
+def huffman(node, code=[], id_to_code={}, id_to_way={}, way=[]):
+    if (node.symbol != None):
+        if (node.left != None):
+            new_way = way.copy()
+            new_way.append(node.symbol)
+            new_code = code.copy()
+            new_code.append(1)
+            huffman(node.left, new_code, id_to_code, id_to_way, new_way)
+        if (node.right != None):
+            new_way = way.copy()
+            new_way.append(node.symbol)
+            new_code = code.copy()
+            new_code.append(-1)
+            huffman(node.right, new_code, id_to_code, id_to_way, new_way)
 
+    else:
+        id_to_code[node.id] = code
+        id_to_way[node.id] = way
+
+    return id_to_code, id_to_way
+
+def huffman_encoding():
+    with open('./news/vocab.txt', 'rb') as v:
+        (word_to_id, id_to_word, count) = pickle.load(v)
+        node = tree(count, id_to_word)
+
+    id_to_code, id_to_way = huffman(node)
+
+    max = 0
+    for code in id_to_code.values():
+        if max < len(code):
+            max = len(code)
+
+    l = len(id_to_code)
+    mat_code = np.zeros((l, max))
+    mat_way = np.zeros((l, max), dtype=int)
+    for id in tqdm(range(l)):
+        code = id_to_code[id]
+        way = id_to_way[id]
+
+        while len(code) < max: code.append(0)
+        while len(way) < max: way.append(0)
+
+        mat_code[id] = code
+        mat_way[id] = way
+
+    with open('./news/huffman.txt', 'wb') as hf:
+        pickle.dump((mat_code, mat_way), hf)
+    return None
