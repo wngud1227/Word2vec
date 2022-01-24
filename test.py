@@ -73,50 +73,43 @@ class SkipGram:
         self.lr = 0.025
         self.window_size = np.random.randint(1, window_size)
         self.cache = None
+        self.x = None
 
         self.W_embedding = 0.01 * np.random.randn(self.vocab_size, self.dimension).astype('f')
         self.W_embedding_b = np.zeros((self.vocab_size - 1, self.dimension)).astype('f')
 
 
-    def forward(self, contexts, center, id_to_code, id_to_way):
+    def forward(self, contexts, center, codes, ways):
         loss = 0
         cache = []
-
-        x = self.W_embedding[center]
-        x = x.reshape(1, self.dimension)
+        self.x = self.W_embedding[center].reshape(1, -1)        #(1, D)
 
         for context in contexts:
-            code = np.array(id_to_code[context]).reshape(-1, 1)   #(V-1, 1)
-            way = list(id_to_way[context])  #(V-1,)
-            score = sigmoid(code * np.dot(self.W_embedding_b[way], x.T)) #(V-1, 1)
+            code = np.array(codes[context]).reshape(-1, 1)     #(V-1, 1)
+            way = ways[context]                 #(V-1)
+            score = sigmoid(code * np.dot(self.W_embedding_b[way], self.x.T))             #(V-1, 1)
             loss -= np.sum(np.log(score + 1e-07))
-            cache.append((x, context, code, way, score))
-
-        self.cache = cache
-        return float(loss)/len(contexts)
+            cache.append((context, code, way, score))
+        self.cache = cache.copy()
+        return loss/len(contexts)
 
     def backward(self, lr):
-        params, grads = [], []
+        l = len(self.cache)
+        for (context, code, way, score) in self.cache:
+            dout = code * (score - 1) / l                  #(V-1, 1)
+            dx = np.dot(dout.T, self.W_embedding_b[way])                          #(1, D)
+            dW_out = np.dot(dout, self.x)                          #(v-1, D)
 
-        for (x, context, code, way, score) in self.cache:
-            dout = ((score - 1) * code) #(V-1, 1)
-            dW_out = np.dot(dout, x) #(V-1, D)
-            dx = np.dot(dout.T, self.W_embedding_b[way]) #(1, D)
-            params.extend(way)
-            grads.extend(dW_out)
+            self.W_embedding_b[way] -= dW_out * lr
             self.W_embedding[context] -= dx.squeeze() * lr
-        params = np.array(params)
-        grads = np.array(grads)
-        params, grads = remove_duplicate(params, grads)
-        self.W_embedding_b[params] -= gra
-        ds * lr
+
         return None
 
     def train(self, epoch):
         start = time.time()
         lr = self.lr
         n = 0
-        with open('./data/huffman.txt', 'rb') as hf:
+        with open('./data/huffman_new.txt', 'rb') as hf:
             (id_to_code, id_to_way) = pickle.load(hf)
 
         for j in tqdm(range(epoch), desc='Epoch'):
