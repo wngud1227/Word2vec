@@ -81,27 +81,30 @@ class SkipGram:
 
     def forward(self, contexts, center, codes, ways):
         loss = 0
-        cache = []
+        cache = [center]
         self.x = self.W_embedding[center].reshape(1, -1)        #(1, D)
 
         for context in contexts:
             code = np.array(codes[context]).reshape(-1, 1)     #(V-1, 1)
             way = ways[context]                 #(V-1)
-            score = sigmoid(code * np.dot(self.W_embedding_b[way], self.x.T))             #(V-1, 1)
+            score = sigmoid(np.dot(self.W_embedding_b[way], self.x.T))             #(V-1, 1)
             loss -= np.sum(np.log(score + 1e-07))
-            cache.append((context, code, way, score))
+            cache.append((code, way, score))
         self.cache = cache.copy()
         return loss/len(contexts)
 
     def backward(self, lr):
-        l = len(self.cache)
-        for (context, code, way, score) in self.cache:
-            dout = code * (score - 1) / l                  #(V-1, 1)
-            dx = np.dot(dout.T, self.W_embedding_b[way])                          #(1, D)
+        l = len(self.cache) - 1
+        center = self.cache[0]
+        cache = self.cache[1:]
+        dx = np.zeros_like(self.x)
+        for (code, way, score) in cache:
+            dout = (score - code) / l                   #(V-1, 1)
+            dx += np.dot(dout.T, self.W_embedding_b[way])                          #(1, D)
             dW_out = np.dot(dout, self.x)                          #(v-1, D)
 
             self.W_embedding_b[way] -= dW_out * lr
-            self.W_embedding[context] -= dx.squeeze() * lr
+        self.W_embedding[center] -= dx.squeeze() * lr
 
         return None
 
@@ -165,12 +168,12 @@ class SkipGram:
 #
 # # #test
 # save_test(file='./data/test.txt', word_to_id=word_to_id)
-# model = SkipGram(window_size=5, hidden_unit=300)
-# model.train(epoch=1)
+model = SkipGram(window_size=5, hidden_unit=300)
+model.train(epoch=1)
 
-with open('./data/embedding_sg_hf.pkl', 'rb') as f:
-    W_embedding = pickle.load(f)
-accuracy = accuracy(file='./news/test_labeled.pkl', W=W_embedding)
+# with open('./data/embedding_sg_hf.pkl', 'rb') as f:
+#     W_embedding = pickle.load(f)
+accuracy = accuracy(file='./news/test_labeled.pkl', W=model.W_embedding)
 print(accuracy[0], accuracy[1])
 #
 # print(most_similar('king', W_embedding, word_to_id, id_to_word, top=5))
