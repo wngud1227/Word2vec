@@ -66,6 +66,84 @@ def create_contexts_target(corpus, window_size=1):
 
     return contexts, target
 
+class CBOW:
+    def __init__(self, window_size, hidden_unit): #window_size: the number of input word, hidden_unit : dimension of vector
+        with open('news/vocab.txt', 'rb') as f:
+            corpus = pickle.load(f)
+        self.word_to_id = corpus[0]
+        self.id_to_word = corpus[1]
+        self.vocab_size = len(self.word_to_id)
+        self.num_sentence = corpus[2]['<EOS>']
+        self.dimension = hidden_unit
+        self.lr = 0.025
+        self.window_size = np.random.randint(1, window_size)
+        self.cache = None
+        self.x = None
+
+        self.W_embedding = 0.01 * np.random.randn(self.vocab_size, self.dimension).astype('f')
+        self.W_embedding_b = np.zeros((self.vocab_size - 1, self.dimension)).astype('f')
+
+    def train(self, epoch):
+        start = time.time()
+        lr = self.lr
+        n = 0
+        with open('./data/huffman_new.txt', 'rb') as hf:
+            (id_to_code, id_to_way) = pickle.load(hf)
+
+        for j in tqdm(range(epoch), desc='Epoch'):
+            count = 0
+            data = './news/en-00000-of-00100.txt'
+            with open(data, 'rb') as f:
+                text = pickle.load(f)
+
+            for sentence in tqdm(text):
+                n += 1
+                contexts, target = create_contexts_target(sentence, window_size=self.window_size + 1)
+
+
+                for i in range(len(contexts)):
+                    count += 1
+                    context = contexts[i]
+                    center = target[i]
+
+                    code = np.array(id_to_code[center]).reshape(1, -1)
+                    way = id_to_way[center]
+
+                    x = np.sum(self.W_embedding[context], axis=0).reshape(1, -1) / len(context)
+                    score = code * np.dot(x, self.W_embedding_b[way].T)                #(1,v)
+                    dout = code * (sigmoid(score) - 1)
+                    dout *= code
+
+                    dx = np.dot(dout, self.W_embedding_b[way])                #(1,D)
+                    dW = np.dot(dout.T, x)                                      #(v,D)
+
+                    self.W_embedding_b[way] -= lr * dW                        #(V,D)
+                    self.W_embedding[context] -= lr * dx.squeeze()/len(context)
+
+                #lr decay
+                alpha = 1 - n/(self.num_sentence * epoch)
+                if alpha <= 0.0001:
+                    alpha = 0.0001
+
+                lr = self.lr * alpha
+
+
+                if count % 10000 == 1:
+                    train_time = (time.time() - start) / 3600
+                    print('time: {}'.format(train_time))
+                    print('{} sentence trained!'.format(n))
+                    print('learning rate : {}'.format(lr))
+
+                    count = 0
+
+
+        print('Train Finished!')
+        print('Train time : {}'.format(time.time()-start))
+
+        with open('./data/embedding_cbow_hf.pkl', 'wb') as f:
+            pickle.dump(self.W_embedding, f)
+        return None
+
 
 class SkipGram:
     def __init__(self, window_size, hidden_unit): #window_size: the number of input word, hidden_unit : dimension of vector
@@ -107,16 +185,17 @@ class SkipGram:
                     context = contexts[i]
                     center = target[i]
 
-                    for context_word in context:
-                        grad = np.zeros(self.dimension)
-                        classifiers = zip(id_to_code[center], id_to_way[center])
-                        for t, l in classifiers:
-                            z = np.dot(self.W_embedding[context_word], self.W_embedding_b[t])
-                            p = sigmoid(z)
-                            q = lr * l * (1 - p)
-                            grad += q * self.W_embedding_b[t]
-                            self.W_embedding_b[t] += q * self.W_embedding[context_word]
-                        self.W_embedding[context_word] += grad
+                    code = np.array(id_to_code[center]).reshape(-1, 1)
+                    way = id_to_way[center]
+
+                    score = np.dot(code * self.W_embedding_b[way], self.W_embedding[context].T)  # (v, w)
+                    score = sigmoid(score)
+                    dout = code * (score - 1) / len(context)      #(v,w)
+                    dW = np.dot(dout.T, self.W_embedding_b[way])
+                    dW_b = np.dot(dout, self.W_embedding[context])
+
+                    self.W_embedding[context] -= lr * dW
+                    self.W_embedding_b[way] -= lr * dW_b
 
                 #lr decay
                 alpha = 1 - n/(self.num_sentence * epoch)
@@ -138,9 +217,14 @@ class SkipGram:
         print('Train Finished!')
         print('Train time : {}'.format(time.time()-start))
 
-        with open('data/embedding_sg_hf.pkl', 'wb') as f:
+        with open('./data/embedding_sg_hf.pkl', 'wb') as f:
             pickle.dump(self.W_embedding, f)
         return None
 
-model = SkipGram(5, 300)
-model.train(1)
+# model = CBOW(5, 300)
+# model.train(1)
+
+with open('./data/embedding_sg_hf.pkl', 'rb') as f:
+    W_embedding = pickle.load(f)
+accuracy = accuracy(file='./news/test_labeled.pkl', W=W_embedding)
+print(accuracy[0], accuracy[1], accuracy[2])
