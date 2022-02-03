@@ -1,0 +1,123 @@
+import pickle
+import numpy as np
+import time
+from tqdm.auto import tqdm
+
+def sigmoid(x):
+    out = 1. / (1. + np.exp(-x))
+    return out
+
+def create_contexts_target(corpus, window_size=1):
+    target = corpus[window_size:-window_size]
+    contexts = []
+
+    for idx in range(window_size, len(corpus)-window_size):
+        cs = []
+        for t in range(-window_size, window_size + 1):
+            if t == 0:
+                continue
+            cs.append(corpus[idx + t])
+        contexts.append(cs)
+
+    return contexts, target
+
+class UnigramTable:
+    def __init__(self, vocab, word_to_id, power=0.75):
+        count = 0
+        self.table = np.zeros(len(vocab))
+        for word in vocab.keys():
+            id = word_to_id[word]
+            count += vocab[word] * power
+            self.table[id] = count
+        self.table /= count
+
+    def negative_sampling(self, target, num_sample=5):
+        neg = [target]
+        while(1):
+            index = np.random.rand()
+            for i in range(self.table.shape[0]):
+                if self.table[i] < index:
+                    continue
+
+                if target == i:
+                    break
+                else:
+                    neg.append(i)
+                    break
+
+            if len(neg) > num_sample:
+                break
+        return neg
+
+class Skipgram:
+    def __init__(self, window_size=5, sample_size=5, dimension=300):
+        with open('./news/vocab.txt', 'rb') as v:
+            (word_to_id, id_to_word, vocab) = pickle.load(v)
+        self.num_sentence = vocab['<EOS>']
+        self.W = 0.01 * np.random.randn(len(vocab), dimension).astype('f')
+        self.W_b = np.zeros((len(vocab), dimension)).astype('f')
+        self.unigram = UnigramTable(vocab, word_to_id, 0.75)
+        self.sample_size = sample_size
+        self.window_size = np.random.randint(1, window_size+1)
+
+    def train(self, contexts, center, lr):
+        label = np.zeros(self.sample_size + 1)
+        label[0] = 1
+        for context in contexts:
+            x = self.W[context].reshape(1, -1)
+            target = self.unigram.negative_sampling(center, self.sample_size)
+            score = sigmoid(np.dot(x, self.W_b[target].T))
+            dout = (score - label).reshape(1, -1)
+
+            self.W[context] -= lr * np.dot(dout, self.W_b[target]).squeeze()
+            self.W_b[target] -= lr * np.dot(dout.T, x)
+        return
+
+start = time.time()
+lr = 0.025
+n = 0
+epoch = 1
+model = Skipgram()
+for j in tqdm(range(epoch), desc='Epoch'):
+    loss = 0
+    count = 0
+
+    for i in tqdm(range(100), desc='Iteration'):
+        if i < 10:
+            num = '0' + str(i)
+        else:
+            num = str(i)
+        data = './news/en-000' + num + '-of-00100.txt'
+        with open(data, 'rb') as f:
+            text = pickle.load(f)
+
+        for sentence in tqdm(text):
+            n += 1
+            contexts, target = create_contexts_target(sentence, window_size=model.window_size)
+            for i in range(len(contexts)):
+                count += 1
+                model.train(contexts[i], target[i], lr)
+
+            #lr decay
+            alpha = 1 - n/(model.num_sentence * epoch)
+            if alpha <= 0.0001:
+                alpha = 0.0001
+
+            lr = lr * alpha
+
+            # if count % 10000 == 1:
+            #     train_time = (time.time() - start) / 3600
+            #     avg_loss = loss/count
+            #     print('time: {}, loss : {}'.format(train_time, avg_loss))
+            #     print('{} sentence trained!'.format(n))
+            #     print('learning rate : {}'.format(lr))
+            #
+            #     count = 0
+            #     loss = 0
+
+
+print('Train Finished!')
+print('Train time : {}'.format(time.time()-start))
+
+with open('data/dataset/embedding_sg_neg15.pkl', 'wb') as f:
+    pickle.dump(model.W, f)
