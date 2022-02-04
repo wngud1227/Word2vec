@@ -1,201 +1,152 @@
 import sys
 sys.path.append('..')
-import collections
-import zipfile
+from collections import Counter
+import pickle
 import numpy as np
+import heapq
+from tqdm.auto import tqdm
 import time
 
-class preprocess:
-    def __init__(self, file):
-        self.file = file
-        self.dictionary_size = 1000
-        self.min_count = 5
-        self.vocab_size = 0
-        self.vocab_max_size = 1000
-        self.Max_string = 50
-        self.vocab = list(-1 for i in range(self.vocab_max_size))
+def readtext(file):
+    with open(file, 'r', encoding='utf-8') as f:
+        data = f.read()
+    word_list = []
+    word = ''
+    for l in data:
+        if (l == '\n') or (l == ' ') or (l == '\t'):
+            word_list.append(word)
+            word = ''
+            if (l == '\n'):
+                word_list.append('<EOS>')
+        else: word += l
+    return word_list
 
-    def readzip(self):
-        with zipfile.ZipFile(self.file) as f:
-            names = f.namelist()
-            contents = f.read(names[0])
-            text = contents.split()
-            return text
+def wordset(num_vocab): #num_vocab : vocab size, vocabulary만들기
+    collection = Counter()
+    for i in range(100):
+        if i < 10: num = '0' + str(i)
+        else: num = str(i)
+        file = 'data/dataset/news.en-000' + num + '-of-00100'
+        words = readtext(file)
+        collection += Counter(words)
 
+    vocab = {'<UNK>': 0}
 
-    def readtext(self):
-        newfile = []
-        with open(self.file, 'r', encoding='UTF8') as f:
-            for text in f.readlines():
-                text = text.replace(' .', ' <EOS>')
-                text = text.lower().split()
-                for word in text:
-                    if len(word) > self.Max_string:
-                        text.remove(word)
-                newfile.extend(text)
-            return newfile
+    for (word, value) in collection.most_common():
+        if len(vocab) < num_vocab:
+            vocab[word] = value
+        else:
+            vocab['<UNK>'] += value
 
-    def wordset(self):
-        text = self.readtext()
-        unique = collections.Counter(text)
-        del text
-        orders = unique.most_common()
-        del unique
-        # dictionary = ['<UNK>']
-        # for i in range(len(orders)):
-        #     if orders[i][1] < self.min_count:
-        #         del orders
-        #         break
-        #     else:
-        #         dictionary.append(orders[i][0])
-        #
-        # return dictionary
-        # dictionary = [['<UNK>', 0]]
-        # for i in range(len(orders)):
-        #     if orders[i][1] < self.min_count:
-        #         dictionary[0][1] = len(orders) - i
-        #         del orders
-        #         break
-        #     else:
-        #         dictionary.append(orders[i])
-        # return dictionary
-        vocab, counts = ['<UNK>'], [0]
-        for i in range(len(orders)):
-            if orders[i][1] < self.min_count:
-                counts[0] = len(orders) - i
-                del orders
-                break
-            else:
-                vocab.append(orders[i][0])
-                counts.append(orders[i][1])
+    word_to_id = {}
+    id_to_word = {}
 
-        # <UNK> 포함 sorting
-        # for i in range(len(vocab)):
-        #     if counts[i] < counts[i + 1]:
-        #         temp1 = counts[i]
-        #         counts[i] = counts[i + 1]
-        #         counts[i + 1] = temp1
-        #         temp2 = vocab[i]
-        #         vocab[i] = vocab[i + 1]
-        #         vocab[i + 1] = temp2
-        #
-        #     else:
-        #         break
-
-        return vocab, counts
+    for word in vocab.keys():
+        word_to_id[word] = len(word_to_id)
+        id_to_word[len(id_to_word)] = word
 
 
+    return word_to_id, id_to_word, vocab
+
+def textfile(word_to_id):
+    text = []
+    for i in range(100):
+        if i < 10 : num = '0' + str(i)
+        else: num = str(i)
+        file = 'data/dataset/news.en-000' + num + '-of-00100'
+        words = readtext(file)
+
+        sentence = []
+        for word in words:
+            if word in word_to_id.keys():
+                sentence.append(word_to_id[word])
+                if word == '<EOS>':
+                    text.append(np.array(sentence))
+                    sentence = []
+
+            else: text.append(word_to_id['<UNK>'])
+
+        #file 저장
+        new_file = 'data/dataset/news/en-000' + num + '-of-00100.txt'
+        with open(new_file, 'wb') as f:
+            pickle.dump(text, f)
+        text = []
+
+class Node:
+    def __init__(self, count, id, symbol=None, left=None, right=None):
+        self.count = count
+        self.id = id
+        self.symbol = symbol
+        self.left = left
+        self.right = right
+
+    def __lt__(self, other):
+        return self.count < other.count
+
+    def __eq__(self, other):
+        if (other == None):
+            return False
+        if (not isinstance(other, Node)):
+            return False
+        return self.count == other.count
 
 
-    # def Huffman_coding(self):
-    #     vocab_size = len(self.wordset())
-    #     pos1 =
-    #     for i in range(len(self.wordset()) - 1):
-    #         if
+def make_node(id_to_word, vocab):
+    nodes = []
+    for id in tqdm(id_to_word.keys()):
+        node = Node(vocab[id_to_word[id]], id)
+        heapq.heappush(nodes, node)
 
-class UnigramSampler:
-    def __init__(self, counts, power, sample_size):
-        self.sample_size = sample_size
-        self.vocab_size = len(counts)
-        self.word_p = np.zeros(self.vocab_size)
-        self.word_p = np.power(counts, power)
-        self.word_p /= np.sum(self.word_p)
+    symbol = int(0)
+    start = time.time()
+    while len(nodes) > 1:
+        left = heapq.heappop(nodes)
+        right = heapq.heappop(nodes)
+        node = Node(left.count + right.count, None, symbol, left, right)
+        symbol += 1
+        heapq.heappush(nodes, node)
 
-    def get_negative_sample(self, target):
-        batch_size = target.shape[0]
-        negative_sample = np.zeros((batch_size, self.sample_size), dtype=np.int32)
-
-        for i in range(batch_size):
-            p = self.word_p.copy()
-            target_idx = target[i]
-            p[target_idx] = 0
-            p /= p.sum()
-            negative_sample[i, :] = np.random.choice(self.vocab_size, size=self.sample_size, replace=False, p=p)
-
-        return negative_sample
+        if symbol%10000 == 0:
+            print(time.time() - start)
+    print('Make Node End!')
+    return nodes
 
 
-def cross_entropy_error(y, t):
-    if y.ndim == 1:
-        t = t.reshape(1, t.size)
-        y = y.reshape(1, y.size)
+def make_codes(root, current_code, current_way, codes, way):
+    if (root == None):
+        return
 
-    batch_size = y.shape[0]
+    if (root.id != None):
+        codes[root.id] = current_code
+        way[root.id] = current_way
+        return
 
-    return -np.sum(np.log(y[np.arange(batch_size), t] + 1e-7)) / batch_size
+    if root.left:
+        new_code, new_way = current_code.copy(), current_way.copy()
+        new_code.append(-1)
+        new_way.append(root.symbol)
+        make_codes(root.left, new_code, new_way, codes, way)
+    if root.right:
+        new_code, new_way = current_code.copy(), current_way.copy()
+        new_code.append(1)
+        new_way.append(root.symbol)
+        make_codes(root.right, new_code, new_way, codes, way)
 
-class SigmoidWithLoss:
-    def __init__(self):
-        self.params, self.grads = [], []
-        self.loss = None
-        self.y = None
-        self.t = None
+def huffman(nodes):
+    codes, way = {}, {}
+    current_code, current_way = [], []
+    root = heapq.heappop(nodes)
+    make_codes(root, current_code, current_way, codes, way)
+    print('Make Code End!')
 
-    def forward(self, x, t):
-        self.t = t
-        self.y = 1 / (1 + np.exp(-x))
+    with open('./data/huffman_new.txt', 'wb') as hf:
+        pickle.dump((codes, way), hf)
 
-        self.loss = cross_entropy_error(np.c_[1 - self.y, self.y], self.t)
+    return
 
-        return self.loss
-
-    def backward(self, dout=1):
-        batch_size = self.t.shape[0]
-
-        dx = (self.y - self.t) * dout / batch_size
-        return dx
-
-class Adam:
-    def __init__(self, lr=0.001, beta1=0.9, beta2=0.999, iter=0):
-        self.lr = lr
-        self.beta1 = beta1
-        self.beta2 = beta2
-        self.iter = iter
-        self.m = None
-        self.v = None
-
-    def update(self, params, grads):
-        if self.m is None:
-            self.m, self.v = [], []
-            for param in params:
-                self.m.append(np.zeros_like(param))
-                self.v.append(np.zeros_like(param))
-
-        self.iter += 1
-        lr_t = self.lr * np.sqrt(1.0 - self.beta2**self.iter) / (1.0 - self.beta1**self.iter)
-
-        for i in range(len(params)):
-            self.m[i] += (1 - self.beta1) * (grads[i] - self.m[i])
-            self.v[i] += (1 - self.beta2) * (grads[i]**2 - self.v[i])
-
-            params[i] -= lr_t * self.m[i] / (np.sqrt(self.v[i]) + 1e-7)
-
-def remove_duplicate(params, grads):
-    params, grads = params[:], grads[:]
-
-    while True:
-        find_flg = False
-        L = len(params)
-
-        for i in range(0, L - 1):
-            for j in range(i + 1, L):
-
-                if params[i] is params[j]:
-                    grads[i] += grads[j]
-                    find_flg = True
-                    params.pop(j)
-                    grads.pop(j)
-
-                elif params[i].ndim == 2 and params[j].ndim == 2 and \
-                     params[i].T.shape == params[j].shape and np.all(params[i].T == params[j]):
-                    grads[i] += grads[j].T
-                    find_flg = True
-                    params.pop(j)
-                    grads.pop(j)
-
-                if find_flg: break
-            if find_flg: break
-
-        if not find_flg: break
-
-    return params, grads
+def huffman_encoding():
+    with open('./news/vocab.txt', 'rb') as v:
+        (word_to_id, id_to_word, vocab) = pickle.load(v)
+    node = make_node(id_to_word, vocab)
+    huffman(node)
+    return
