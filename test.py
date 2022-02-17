@@ -112,6 +112,7 @@ class SkipGram:
     def train(self, epoch):
         start = time.time()
         n = 0
+        max_n = 0
 
         for j in tqdm(range(epoch), desc='Epoch'):
             loss = 0
@@ -125,7 +126,7 @@ class SkipGram:
                 data = './news/news.en-000' + num + '-of-00100'
                 with open(data, 'rb') as f:
                     text = pickle.load(f)
-                    max_n = len(text)
+                    max_n += len(text)
                 for sentence in text:
                     n += 1
                     #subsampling
@@ -163,8 +164,8 @@ class SkipGram:
             pickle.dump(self.W_embedding, f)
         return None
 
-model = SkipGram()
-model.train(1)
+# model = SkipGram()
+# model.train(1)
 # file = 'data/test.txt'
 # with open('news/vocab.txt', 'rb') as v:
 #     (word_to_id, id_to_word, vocab) = pickle.load(v)
@@ -180,3 +181,5 @@ model.train(1)
 # accuracy = accuracy(file='./news/test_labeled.pkl', W=W_embedding)
 # print(accuracy)
 # (0.07812908283250589, 0.1338573575309213, 0.11676550729283539) 1iter
+# (0.45492552913509277, 0.4946248988556236, 0.4824491104343645) 1epoch with sg_neg5_sub (30K)
+
